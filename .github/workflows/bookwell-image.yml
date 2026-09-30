@@ -1,0 +1,70 @@
+# Storia Bookwell build: Calnode plus the patches on this branch, published as
+# ghcr.io/storia-technologies/bookwell-calnode:<version>.
+#
+# Push a tag named bookwell-<version>, e.g. bookwell-0.10.1-relay.1, and the
+# image is tagged <version> (0.10.1-relay.1). The Hosted Apps control plane pins
+# that exact tag in BOOKWELL_IMAGE / docker_helpers.BOOKWELL_IMAGE_DEFAULT.
+# amd64 only: every Hosted Apps box is x86_64 Lightsail.
+name: Bookwell image
+
+on:
+  push:
+    tags: ['bookwell-*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Image version to publish (without the bookwell- prefix)
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: v
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then v="${{ inputs.version }}"; else v="${GITHUB_REF_NAME#bookwell-}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # frontend/build is go:embed'd and gitignored; the backend tests only need
+      # it to exist. The real frontend is built inside the Dockerfile below.
+      - name: Backend tests
+        run: |
+          mkdir -p frontend/build && [ -e frontend/build/index.html ] || echo stub > frontend/build/index.html
+          go vet ./...
+          go test ./...
+          rm -rf frontend/build
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            VERSION=${{ steps.v.outputs.version }}
+            COMMIT=${{ steps.v.outputs.commit }}
+          tags: ghcr.io/storia-technologies/bookwell-calnode:${{ steps.v.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/Storia-Technologies/bookwell-calnode
+            org.opencontainers.image.version=${{ steps.v.outputs.version }}
+            org.opencontainers.image.description=Calnode plus the Bookwell OAuth relay and least-privilege Google scope patches
+            org.opencontainers.image.licenses=Apache-2.0
