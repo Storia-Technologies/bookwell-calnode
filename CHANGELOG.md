@@ -32,6 +32,15 @@ exact tag (`ghcr.io/calnode/calnode:0.1.0`) if you need stability between upgrad
   key. Each invite gets a private reply address, and an answer only counts when Resend
   verified it came from that booking's booker.
 
+### Changed
+- **Google Calendar asks for less.** Connecting a Google calendar now requests
+  `calendar.events`, `calendar.calendarlist.readonly` and `calendar.freebusy` instead of
+  full `calendar` access; that covers every call Calnode makes. Existing connections keep
+  working with the access they already granted. A connect where the user unticks any of
+  the three on Google's consent screen is refused with a message, instead of saving a
+  connection that silently can't read busy times or write events. If your OAuth consent
+  screen lists the old `calendar` scope, swap it for these three.
+
 ## [0.10.1] - 2026-09-29
 
 ### Added

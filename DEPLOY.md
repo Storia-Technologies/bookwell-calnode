@@ -167,9 +167,19 @@ https://<your-domain>/v1/calendar/callback
 ```
 
 Set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (env or Settings → Google OAuth — the
-page shows the exact redirect URIs for the running instance). Calendar is a
-sensitive scope, so submit the app for verification before wide public use
-(unverified = warning screen + 100-user cap).
+page shows the exact redirect URIs for the running instance). Calendar connect
+requests only these scopes (add them on the OAuth consent screen's Data Access page):
+
+```
+https://www.googleapis.com/auth/calendar.events                 (create/move/cancel booking events)
+https://www.googleapis.com/auth/calendar.calendarlist.readonly  (list calendars to pick from)
+https://www.googleapis.com/auth/calendar.freebusy               (read busy times)
+```
+
+Sign-in adds `openid email profile`. The calendar scopes are sensitive, so submit
+the app for verification before wide public use (unverified = warning screen +
+100-user cap). If a user unticks one of them on Google's consent screen, the connect
+is refused with a message asking them to try again, rather than half-working.
 
 ### Sharing one OAuth client across many instances (`OAUTH_CALLBACK_BASE_URL`)
 
