@@ -15,6 +15,7 @@ import (
 	"github.com/calnode/calnode/internal/livekit"
 	"github.com/calnode/calnode/internal/llm"
 	"github.com/calnode/calnode/internal/mailer"
+	"github.com/calnode/calnode/internal/oauthrelay"
 	"github.com/calnode/calnode/internal/stripe"
 	"github.com/calnode/calnode/internal/webhook"
 	"github.com/calnode/calnode/internal/zoom"
@@ -35,6 +36,7 @@ type Handler struct {
 	webhookSvc        *webhook.Service
 	baseURL           string
 	publicBaseURL     string
+	oauthCallbackBase string // OAUTH_CALLBACK_BASE_URL; "" ⇒ OAuth callbacks go to baseURL directly
 	dataDir           string
 	authMu            sync.RWMutex
 	googleAuth        *oauth2.Config
@@ -157,6 +159,41 @@ func (h *Handler) SetEncKey(hexKey string) {
 // and team invites.
 func (h *Handler) SetBaseURL(url string) {
 	h.baseURL = url
+}
+
+// SetOAuthCallbackBaseURL turns on OAuth relay mode: Google/Microsoft redirect URIs
+// are built from base instead of baseURL, and OAuth state carries a routing tag for
+// baseURL's host (see internal/oauthrelay). Empty turns it off.
+func (h *Handler) SetOAuthCallbackBaseURL(base string) {
+	h.oauthCallbackBase = base
+}
+
+// OAuthRedirectBase is the base URL (origin plus optional path prefix) that
+// Google/Microsoft redirect URIs are built from: the
+// relay when OAUTH_CALLBACK_BASE_URL is set, otherwise this instance's baseURL.
+func (h *Handler) OAuthRedirectBase() string {
+	if h.oauthCallbackBase != "" {
+		return h.oauthCallbackBase
+	}
+	return h.baseURL
+}
+
+// tagOAuthState adds the relay routing tag to an outgoing OAuth state. No-op when
+// relay mode is off.
+func (h *Handler) tagOAuthState(state string) string {
+	if h.oauthCallbackBase == "" {
+		return state
+	}
+	return oauthrelay.Wrap(state, h.baseURL)
+}
+
+// untagOAuthState reverses tagOAuthState on a callback. In relay mode a state without
+// this instance's tag is rejected (ok=false). No-op when relay mode is off.
+func (h *Handler) untagOAuthState(state string) (string, bool) {
+	if h.oauthCallbackBase == "" {
+		return state, true
+	}
+	return oauthrelay.Unwrap(state, h.baseURL)
 }
 
 // SetPublicBaseURL sets the booker-facing host used for booking-page links and

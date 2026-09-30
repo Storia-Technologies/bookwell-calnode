@@ -12,6 +12,12 @@ exact tag (`ghcr.io/calnode/calnode:0.1.0`) if you need stability between upgrad
 ## [Unreleased]
 
 ### Added
+- **Optional OAuth relay for many instances on one OAuth client.** Set
+  `OAUTH_CALLBACK_BASE_URL` and Google/Microsoft sign-in and calendar redirect URIs
+  point at that base URL (an origin, optionally with a path prefix) instead of
+  `BASE_URL`, with a routing tag in the OAuth state so
+  a relay you run can send each callback back to the right instance. Unset, nothing
+  changes. See DEPLOY.md §5.
 - **Calendar invites can come from Calnode instead of the host's calendar.** A new
   per-event-type setting, *Calendar invite → Sent by*. The default is unchanged: the host's
   connected calendar invites the booker, from the host's own address. Choose *Calnode* and

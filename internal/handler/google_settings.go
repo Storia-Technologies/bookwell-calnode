@@ -58,7 +58,7 @@ func (h *Handler) GetGoogleSettings(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	h.writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"client_id":         clientID,
 		"client_secret_set": secretEnc != "",
 		"configured":        clientID != "",
@@ -66,7 +66,14 @@ func (h *Handler) GetGoogleSettings(w http.ResponseWriter, r *http.Request) {
 		// from (see PatchGoogleSettings); the setup UI renders the exact URIs to
 		// register in Google Cloud so they always match what we send.
 		"base_url": h.baseURL,
-	})
+	}
+	// In relay mode the redirect URIs are built from the relay base URL instead. The
+	// field is only present then, so base_url keeps meaning "this instance's host"
+	// (the UI's stale-BASE_URL check compares it with the browser origin).
+	if h.oauthCallbackBase != "" {
+		resp["oauth_callback_base_url"] = h.oauthCallbackBase
+	}
+	h.writeJSON(w, http.StatusOK, resp)
 }
 
 // PatchGoogleSettings handles PATCH /v1/settings/google (admin only).
@@ -164,7 +171,7 @@ func (h *Handler) PatchGoogleSettings(w http.ResponseWriter, r *http.Request) {
 
 	if resolvedSecret != "" {
 		encKeyHex := hex.EncodeToString(h.encKey[:])
-		gc, err := gcal.New(h.db, req.ClientID, resolvedSecret, h.baseURL+"/v1/calendar/callback", encKeyHex)
+		gc, err := gcal.New(h.db, req.ClientID, resolvedSecret, h.OAuthRedirectBase()+"/v1/calendar/callback", encKeyHex)
 		if err != nil {
 			h.logger.ErrorContext(r.Context(), "google settings: hot-reload gcal failed", "error", err)
 			h.writeError(w, http.StatusInternalServerError, "failed to initialize calendar client")
@@ -173,7 +180,7 @@ func (h *Handler) PatchGoogleSettings(w http.ResponseWriter, r *http.Request) {
 		svc := calendar.NewService(h.db)
 		svc.Register(gc)
 		h.SetCalendar(svc)
-		h.SetGoogleAuth(req.ClientID, resolvedSecret, h.baseURL+"/v1/auth/callback", h.secureCookie)
+		h.SetGoogleAuth(req.ClientID, resolvedSecret, h.OAuthRedirectBase()+"/v1/auth/callback", h.secureCookie)
 		h.logger.Info("google settings: credentials updated and gcal hot-reloaded")
 	}
 

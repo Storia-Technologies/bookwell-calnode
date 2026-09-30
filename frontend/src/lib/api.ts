@@ -206,6 +206,8 @@ export type GoogleSettings = {
 	configured: boolean;
 	/** Identity host the server builds OAuth redirect URIs from. */
 	base_url: string;
+	/** Set only in OAuth relay mode: the relay base URL (may include a path) redirect URIs are built from instead. */
+	oauth_callback_base_url?: string;
 };
 
 export type ZoomSettings = {

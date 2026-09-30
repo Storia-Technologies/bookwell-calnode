@@ -18,9 +18,13 @@
 
 	// Host the server builds its OAuth redirect URIs from. Prefer the server's
 	// configured base_url so the displayed URIs match exactly what we send to
-	// Google; fall back to the current origin if it's somehow blank.
+	// Google; fall back to the current origin if it's somehow blank. In OAuth relay
+	// mode (OAUTH_CALLBACK_BASE_URL) the server sends the relay's base URL instead.
+	const relayMode = $derived(!!googleSettings?.oauth_callback_base_url);
 	const redirectBase = $derived(
-		googleSettings?.base_url || (typeof window !== 'undefined' ? window.location.origin : '')
+		googleSettings?.oauth_callback_base_url ||
+			googleSettings?.base_url ||
+			(typeof window !== 'undefined' ? window.location.origin : '')
 	);
 	const isLocal = $derived(redirectBase.includes('localhost') || redirectBase.includes('127.0.0.1'));
 
@@ -67,8 +71,14 @@
 				<p class="mt-1 text-amber-800">
 					You're browsing <code class="rounded bg-amber-100 px-1 font-mono">{browserOrigin}</code>, but this
 					server's <code class="rounded bg-amber-100 px-1 font-mono">BASE_URL</code> is set to
-					<code class="rounded bg-amber-100 px-1 font-mono">{googleSettings?.base_url}</code>. The redirect
-					URIs below are built from <code class="rounded bg-amber-100 px-1 font-mono">BASE_URL</code> —
+					<code class="rounded bg-amber-100 px-1 font-mono">{googleSettings?.base_url}</code>.
+					{#if relayMode}
+						Google sign-in and calendar connect return to
+						<code class="rounded bg-amber-100 px-1 font-mono">BASE_URL</code> via the OAuth relay —
+					{:else}
+						The redirect URIs below are built from
+						<code class="rounded bg-amber-100 px-1 font-mono">BASE_URL</code> —
+					{/if}
 					if <code class="rounded bg-amber-100 px-1 font-mono">{browserOrigin}</code> is your real domain
 					(for example, after pointing a custom domain at this instance), update the
 					<code class="rounded bg-amber-100 px-1 font-mono">BASE_URL</code> environment variable/secret with
@@ -121,7 +131,13 @@
 						<code class="mt-1 block rounded bg-muted px-2 py-1 text-xs font-mono break-all">{redirectBase}/v1/calendar/callback</code>
 						<code class="mt-1 block rounded bg-muted px-2 py-1 text-xs font-mono break-all">{redirectBase}/v1/auth/callback</code>
 						Click <span class="font-medium">Create</span>. Copy the Client ID and Client Secret shown.
-						{#if !isLocal}
+						{#if relayMode}
+							<p class="mt-1.5 text-xs text-muted-foreground">
+								These point at the OAuth relay set by
+								<code class="rounded bg-muted px-1">OAUTH_CALLBACK_BASE_URL</code>, which forwards each
+								callback back to this instance.
+							</p>
+						{:else if !isLocal}
 							<p class="mt-1.5 text-xs text-muted-foreground">
 								If you also run Calnode locally, add the
 								<code class="rounded bg-muted px-1">http://localhost:3000/…</code> variants of both URIs too.
@@ -175,7 +191,13 @@
 					</p>
 					<code class="mt-2 block rounded bg-muted px-2 py-1 text-xs font-mono break-all">{redirectBase}/v1/calendar/callback</code>
 					<code class="mt-1 block rounded bg-muted px-2 py-1 text-xs font-mono break-all">{redirectBase}/v1/auth/callback</code>
-					{#if !isLocal}
+					{#if relayMode}
+						<p class="mt-1.5 text-xs text-muted-foreground">
+							These point at the OAuth relay set by
+							<code class="rounded bg-muted px-1">OAUTH_CALLBACK_BASE_URL</code>, which forwards each
+							callback back to this instance.
+						</p>
+					{:else if !isLocal}
 						<p class="mt-1.5 text-xs text-muted-foreground">
 							If you also run Calnode locally, add the
 							<code class="rounded bg-muted px-1">http://localhost:3000/…</code> variants too.
