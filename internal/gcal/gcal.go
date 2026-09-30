@@ -9,10 +9,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -34,6 +36,54 @@ func (c *Client) Name() string { return "google" }
 // InvitesGuests is true: Google emails guests its own invite (sendUpdates=all),
 // so Calnode must not also attach an .ics (it would duplicate).
 func (c *Client) InvitesGuests() bool { return true }
+
+// Scopes is the least-privilege set covering every Calendar API call this package makes.
+// Each is needed by exactly these calls:
+//
+//   - calendar.events: events.insert / events.patch / events.delete (the booking's
+//     event on the host's chosen destination calendar, which may be a calendar shared
+//     with them, so calendar.events.owned is not enough).
+//   - calendar.calendarlist.readonly: calendarList.list (picking destination and
+//     conflict-check calendars) and calendarList.get("primary") (the account email).
+//   - calendar.freebusy: freebusy.query (busy times for the selected calendars).
+//
+// Tokens granted under the old broad "calendar" scope keep working: it covers all three.
+var Scopes = []string{
+	"https://www.googleapis.com/auth/calendar.events",
+	"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+	"https://www.googleapis.com/auth/calendar.freebusy",
+}
+
+// broadScope is the full-access scope Calnode requested before Scopes; it covers them all.
+const broadScope = "https://www.googleapis.com/auth/calendar"
+
+// ErrMissingScopes means the user granted only some of Scopes. Google's consent screen
+// lets users untick individual scopes, and a partial grant would fail later and quietly
+// (no busy times, or no events written), so the connection is refused instead.
+var ErrMissingScopes = errors.New("gcal: not every requested Google Calendar permission was granted")
+
+// missingScopes returns the entries of Scopes not covered by granted, a space-separated
+// OAuth scope string. An empty granted means the server did not report scopes, which is
+// treated as a full grant (the calls themselves still fail cleanly if it was not).
+func missingScopes(granted string) []string {
+	if granted == "" {
+		return nil
+	}
+	have := map[string]bool{}
+	for _, s := range strings.Fields(granted) {
+		have[s] = true
+	}
+	if have[broadScope] {
+		return nil
+	}
+	var missing []string
+	for _, s := range Scopes {
+		if !have[s] {
+			missing = append(missing, s)
+		}
+	}
+	return missing
+}
 
 // Client manages Google Calendar OAuth tokens and API access.
 type Client struct {
@@ -58,7 +108,7 @@ func New(db *sql.DB, clientID, clientSecret, redirectURL, encKeyHex string) (*Cl
 			ClientSecret: clientSecret,
 			Endpoint:     google.Endpoint,
 			RedirectURL:  redirectURL,
-			Scopes:       []string{"https://www.googleapis.com/auth/calendar"},
+			Scopes:       Scopes,
 		},
 		key:     key,
 		db:      db,
@@ -95,6 +145,11 @@ func (c *Client) Exchange(ctx context.Context, userID, code, calendarID string) 
 	if err != nil {
 		return fmt.Errorf("gcal: token exchange: %w", err)
 	}
+	granted, _ := tok.Extra("scope").(string)
+	if missing := missingScopes(granted); len(missing) > 0 {
+		c.logger.WarnContext(ctx, "gcal: partial scope grant refused", "user_id", userID, "missing", missing)
+		return ErrMissingScopes
+	}
 	if calendarID == "" {
 		calendarID = "primary"
 	}
@@ -104,10 +159,11 @@ func (c *Client) Exchange(ctx context.Context, userID, code, calendarID string) 
 
 // fetchAccountEmail returns the connected account's email — the primary calendar's id is the
 // account email. Best-effort: returns "" on any error (the connection still works; only
-// dedup/display degrade). Avoids needing extra OAuth scopes.
+// dedup/display degrade). Reads the calendarList entry rather than calendars.get so it
+// stays inside Scopes (calendarlist.readonly) and needs no email/profile scope.
 func (c *Client) fetchAccountEmail(ctx context.Context, tok *oauth2.Token) string {
 	hc := oauth2.NewClient(ctx, c.config.TokenSource(ctx, tok))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBase+"/calendars/primary", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBase+"/users/me/calendarList/primary", nil)
 	if err != nil {
 		return ""
 	}
