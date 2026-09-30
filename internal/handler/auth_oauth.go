@@ -25,14 +25,19 @@ func (h *Handler) newOAuthState(w http.ResponseWriter) (string, error) {
 		SameSite: http.SameSiteLaxMode,
 		Secure:   h.secureCookie,
 	})
-	return state, nil
+	// The cookie keeps the bare token; only the value sent to the provider carries the
+	// relay routing tag (relay mode only).
+	return h.tagOAuthState(state), nil
 }
 
 // verifyOAuthState checks the ?state param against the state cookie and clears the
-// cookie regardless (single use). Returns true when they match.
+// cookie regardless (single use). Returns true when they match. In relay mode the
+// param must also carry this instance's routing tag, which is stripped before the
+// comparison.
 func (h *Handler) verifyOAuthState(w http.ResponseWriter, r *http.Request) bool {
 	c, err := r.Cookie(stateCookieName)
-	ok := err == nil && c.Value != "" && r.URL.Query().Get("state") == c.Value
+	state, tagOK := h.untagOAuthState(r.URL.Query().Get("state"))
+	ok := err == nil && tagOK && c.Value != "" && state == c.Value
 	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- HttpOnly/SameSite/Secure are all set; Secure is h.secureCookie (dynamic on BASE_URL scheme), which gosec's static check can't verify
 		Name:     stateCookieName,
 		Value:    "",

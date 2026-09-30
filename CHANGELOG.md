@@ -9,6 +9,16 @@ All notable changes to Calnode are recorded here. The format follows
 exact tag (`ghcr.io/calnode/calnode:0.1.0`) if you need stability between upgrades.
 `1.0.0` will mark the point at which the API and schema are declared stable.
 
+## [Unreleased]
+
+### Added
+- **Optional OAuth relay for many instances on one OAuth client.** Set
+  `OAUTH_CALLBACK_BASE_URL` and Google/Microsoft sign-in and calendar redirect URIs
+  point at that base URL (an origin, optionally with a path prefix) instead of
+  `BASE_URL`, with a routing tag in the OAuth state so
+  a relay you run can send each callback back to the right instance. Unset, nothing
+  changes. See DEPLOY.md §5.
+
 ## [0.10.1] - 2026-09-29
 
 ### Added

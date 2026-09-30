@@ -40,6 +40,7 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 	h := handler.New(db, logger)
 	h.SetBaseURL(cfg.BaseURL)
 	h.SetPublicBaseURL(cfg.PublicBaseURL)
+	h.SetOAuthCallbackBaseURL(cfg.OAuthCallbackBaseURL)
 	// DATA_DIR, defaulting to the relative "data" every deployment has always used.
 	// The fallback is repeated here because tests build a Config literal that skips
 	// Load, and an empty dir would put uploads beside the binary.
@@ -147,10 +148,11 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 
 	// Build one calendar Service and register every configured provider into it.
 	calSvc := calendar.NewService(db)
-	calRedirect := cfg.BaseURL + "/v1/calendar/callback"
+	oauthBase := h.OAuthRedirectBase() // OAUTH_CALLBACK_BASE_URL when set, else BASE_URL
+	calRedirect := oauthBase + "/v1/calendar/callback"
 
 	if googleClientID != "" {
-		authRedirect := cfg.BaseURL + "/v1/auth/callback"
+		authRedirect := oauthBase + "/v1/auth/callback"
 		h.SetGoogleAuth(googleClientID, googleClientSecret, authRedirect, cfg.CookieSecure)
 		logger.Info("Google OAuth login configured", "redirect_url", authRedirect)
 
@@ -166,7 +168,7 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 	}
 
 	if cfg.MicrosoftClientID != "" && cfg.MicrosoftClientSecret != "" {
-		msAuthRedirect := cfg.BaseURL + "/v1/auth/microsoft/callback"
+		msAuthRedirect := oauthBase + "/v1/auth/microsoft/callback"
 		h.SetMicrosoftAuth(cfg.MicrosoftClientID, cfg.MicrosoftClientSecret, cfg.MicrosoftTenant, msAuthRedirect, cfg.CookieSecure)
 		logger.Info("Microsoft OAuth login configured", "redirect_url", msAuthRedirect)
 

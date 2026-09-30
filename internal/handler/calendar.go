@@ -46,7 +46,7 @@ func (h *Handler) ConnectCalendar(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	http.Redirect(w, r, p.AuthURL(state), http.StatusFound) // #nosec G710 -- AuthURL is the provider's own fixed OAuth authorize endpoint (oauth2.Config.AuthCodeURL); only our own encrypted state is appended, no attacker-controlled destination
+	http.Redirect(w, r, p.AuthURL(h.tagOAuthState(state)), http.StatusFound) // #nosec G710 -- AuthURL is the provider's own fixed OAuth authorize endpoint (oauth2.Config.AuthCodeURL); only our own encrypted state is appended, no attacker-controlled destination
 }
 
 // CalendarCallback handles GET /v1/calendar/callback (public — browser redirect from the provider).
@@ -67,8 +67,14 @@ func (h *Handler) CalendarCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// All providers share the encryption key, so any provider's DecryptState
-	// recovers the state; we then resolve the provider it encodes.
-	raw, err := svc.Primary().DecryptState(r.URL.Query().Get("state"))
+	// recovers the state; we then resolve the provider it encodes. In relay mode the
+	// state must carry this instance's routing tag, stripped before decrypting.
+	state, tagOK := h.untagOAuthState(r.URL.Query().Get("state"))
+	if !tagOK {
+		h.writeError(w, http.StatusBadRequest, "invalid or missing state")
+		return
+	}
+	raw, err := svc.Primary().DecryptState(state)
 	if err != nil || raw == "" {
 		h.writeError(w, http.StatusBadRequest, "invalid or missing state")
 		return

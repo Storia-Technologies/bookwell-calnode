@@ -34,6 +34,7 @@ This guide covers a generic Docker deploy and a step-by-step **Railway** deploy
 | `EMAIL_SMTP_TLS` / `_STARTTLS` | no | `false` | `STARTTLS` for 587, implicit `TLS` for 465. |
 | `EMAIL_FROM_ADDRESS` / `EMAIL_FROM_NAME` | no | `bookings@localhost` / `Calnode` | The From identity. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | no | — | Google sign-in + calendar. Can also be set in Settings → Google OAuth. |
+| `OAUTH_CALLBACK_BASE_URL` | no | — | OAuth relay base URL, e.g. `https://oauth.example.com` or, with a path prefix, `https://api.example.com/oauth/calnode`. Unset ⇒ Google/Microsoft redirect URIs come from `BASE_URL` as usual. Set ⇒ they are this value + the usual `/v1/...` path, so many instances can share one registered OAuth client; see §5. Must be an `http(s)://` URL with no query, fragment or credentials (a trailing `/` is trimmed), or **the app refuses to start**. |
 | `LITESTREAM_REPLICA_URL` | recommended | — | Enables continuous SQLite backup (see §6). |
 | `COOKIE_SECURE` | no | https→true | Override cookie Secure flag; defaults from `BASE_URL` scheme. |
 | `TRUSTED_PROXY_CIDRS` | no | — | Comma-separated CIDRs (a bare address = one host) whose `X-Forwarded-For` is believed when keying per-IP rate limits, e.g. `10.0.0.0/8`. Include a fronting CDN's own ranges so the walk steps over its edge and lands on the visitor. Unset ⇒ the header is ignored and the limit keys on the TCP peer, so behind a CDN every visitor shares one bucket. **Only list networks you control**: anything in the list can name any client IP it likes. Single-value vendor headers (`CF-Connecting-IP`, `X-Real-IP`) are never read, from any peer. |
@@ -143,6 +144,35 @@ Set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (env or Settings → Google OAuth 
 page shows the exact redirect URIs for the running instance). Calendar is a
 sensitive scope, so submit the app for verification before wide public use
 (unverified = warning screen + 100-user cap).
+
+### Sharing one OAuth client across many instances (`OAUTH_CALLBACK_BASE_URL`)
+
+Google and Microsoft only redirect to pre-registered URIs, and Google has no API
+for adding them, so running many instances (each with its own `BASE_URL`) behind
+one OAuth client needs a small relay you host yourself. Set
+`OAUTH_CALLBACK_BASE_URL` to the relay's base URL on every instance and register
+only the relay's URIs, which are that value + the usual paths. With
+`OAUTH_CALLBACK_BASE_URL=https://oauth.example.com`:
+
+```
+https://oauth.example.com/v1/auth/callback             (Google sign-in)
+https://oauth.example.com/v1/calendar/callback         (Google + Microsoft calendar)
+https://oauth.example.com/v1/auth/microsoft/callback   (Microsoft sign-in)
+```
+
+The base may carry a path prefix, for a relay mounted under an existing host:
+`OAUTH_CALLBACK_BASE_URL=https://api.example.com/oauth/calnode` gives
+`https://api.example.com/oauth/calnode/v1/calendar/callback` and so on.
+
+Every `state` the instance sends then ends in `.` + unpadded base64url of its
+`BASE_URL` host (`host[:port]`). The relay decodes the part after the **last** `.`,
+checks the host against the instances it serves (otherwise it is an open
+redirect), and answers `302` to `https://<host>/v1/<rest of path>?<same query>`:
+the path with the relay's own prefix (if any) removed, and the query unchanged. The instance strips its own tag and runs its usual state check
+(cookie for sign-in, encrypted state for calendar), and rejects a tag naming any
+other host, so the relay never holds anything that can complete a sign-in.
+`internal/oauthrelay` has the encoding (`TargetHost` is the relay side). Zoom is
+not covered: its redirect URI still comes from `BASE_URL`.
 
 ---
 

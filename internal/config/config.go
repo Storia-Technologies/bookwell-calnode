@@ -19,6 +19,15 @@ type Config struct {
 	PublicBaseURL  string // booker-facing host: booking links, emails; defaults to BaseURL
 	LogLevel       slog.Level
 
+	// OAuthCallbackBaseURL (OAUTH_CALLBACK_BASE_URL) is an optional OAuth relay base
+	// URL: an origin plus an optional path prefix, e.g. https://relay.example.com/oauth.
+	// Empty (the default) ⇒ Google/Microsoft redirect URIs are built from BaseURL as
+	// always. Set ⇒ they are this base + the usual /v1/... path, and the
+	// OAuth state carries a routing tag naming BaseURL's host so the relay can send
+	// the browser back here (see internal/oauthrelay). For operators running many
+	// instances behind one registered OAuth client.
+	OAuthCallbackBaseURL string
+
 	// Email / SMTP
 	SMTPConnectHost string
 	SMTPConnectPort string
@@ -144,6 +153,7 @@ func Load() *Config {
 	// PUBLIC_BASE_URL overrides the booker-facing host (custom/vanity domain).
 	// Unset → inherits BASE_URL, so single-domain deploys need only set BASE_URL.
 	cfg.PublicBaseURL = getEnv("PUBLIC_BASE_URL", cfg.BaseURL)
+	cfg.OAuthCallbackBaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("OAUTH_CALLBACK_BASE_URL")), "/")
 	cfg.LogLevel = parseLogLevel(getEnv("LOG_LEVEL", "info"))
 	cfg.CookieSecure = getBool("COOKIE_SECURE", strings.HasPrefix(cfg.BaseURL, "https://"))
 	cfg.DemoMode = getBool("DEMO_MODE", false)
@@ -164,6 +174,35 @@ func (c *Config) Validate() error {
 		if err := validFrameAncestor(origin); err != nil {
 			return fmt.Errorf("FRAME_ANCESTORS: %w", err)
 		}
+	}
+	if c.OAuthCallbackBaseURL != "" {
+		if err := validCallbackBase(c.OAuthCallbackBaseURL); err != nil {
+			return fmt.Errorf("OAUTH_CALLBACK_BASE_URL: %w", err)
+		}
+	}
+	return nil
+}
+
+// validCallbackBase accepts an http(s) URL with an optional path prefix and no
+// credentials, query or fragment (Load has already trimmed a trailing slash). The
+// redirect URIs are this value + "/v1/...", so anything a provider would not echo back
+// verbatim is refused. A wrong value here would send every OAuth callback somewhere
+// unexpected, so it fails startup rather than the first sign-in.
+func validCallbackBase(base string) error {
+	u, err := url.Parse(base)
+	switch {
+	case err != nil:
+		return fmt.Errorf("%q is not a URL: %w", base, err)
+	case u.Scheme != "https" && u.Scheme != "http":
+		return fmt.Errorf("%q must start with https://", base)
+	case u.Host == "":
+		return fmt.Errorf("%q has no host", base)
+	case u.User != nil:
+		return fmt.Errorf("%q must not carry credentials", base)
+	case u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(base, "#"):
+		return fmt.Errorf("%q must be a URL with an optional path, and no query or fragment", base)
+	case u.RawPath != "" || strings.Contains(u.Path, "//"):
+		return fmt.Errorf("%q has a path that is not plain (no escapes or empty segments)", base)
 	}
 	return nil
 }

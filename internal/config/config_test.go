@@ -208,3 +208,60 @@ func TestValidate_acceptsAPortAndATrailingSlash(t *testing.T) {
 		t.Errorf("Validate() = %v; want nil", err)
 	}
 }
+
+func TestLoad_oauthCallbackBaseURLUnsetByDefault(t *testing.T) {
+	os.Unsetenv("OAUTH_CALLBACK_BASE_URL")
+	cfg := config.Load()
+	if cfg.OAuthCallbackBaseURL != "" {
+		t.Errorf("OAuthCallbackBaseURL = %q; want empty", cfg.OAuthCallbackBaseURL)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() = %v; want nil", err)
+	}
+}
+
+func TestLoad_oauthCallbackBaseURLTrimsTrailingSlash(t *testing.T) {
+	t.Setenv("OAUTH_CALLBACK_BASE_URL", "https://oauth.example.test/")
+	cfg := config.Load()
+	if cfg.OAuthCallbackBaseURL != "https://oauth.example.test" {
+		t.Errorf("OAuthCallbackBaseURL = %q; want https://oauth.example.test", cfg.OAuthCallbackBaseURL)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() = %v; want nil", err)
+	}
+}
+
+func TestLoad_oauthCallbackBaseURLAcceptsPathPrefix(t *testing.T) {
+	t.Setenv("OAUTH_CALLBACK_BASE_URL", "https://api.example.test/oauth/bookings/")
+	cfg := config.Load()
+	if cfg.OAuthCallbackBaseURL != "https://api.example.test/oauth/bookings" {
+		t.Errorf("OAuthCallbackBaseURL = %q; want the prefix with the trailing slash trimmed", cfg.OAuthCallbackBaseURL)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() = %v; want nil", err)
+	}
+}
+
+func TestValidate_rejectsBadOAuthCallbackBaseURL(t *testing.T) {
+	cases := map[string]string{
+		"no scheme":      "oauth.example.test",
+		"ftp scheme":     "ftp://oauth.example.test",
+		"with query":     "https://oauth.example.test/relay?x=1",
+		"empty query":    "https://oauth.example.test/relay?",
+		"with fragment":  "https://oauth.example.test/relay#x",
+		"empty fragment": "https://oauth.example.test/relay#",
+		"empty segment":  "https://oauth.example.test//relay",
+		"escaped slash":  "https://oauth.example.test/a%2Fb",
+		"credentials":    "https://u:p@oauth.example.test",
+		"scheme only":    "https://",
+		"path, no host":  "https:///relay",
+	}
+	for name, value := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("OAUTH_CALLBACK_BASE_URL", value)
+			if err := config.Load().Validate(); err == nil {
+				t.Errorf("Validate() = nil for %q; want an error", value)
+			}
+		})
+	}
+}
